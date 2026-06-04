@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>饮食打卡与库存管理系统 (多单位版)</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-color: #2c3e50;
+            --border-color: #e1e8ed;
+            --danger-color: #e74c3c;
+            --warning-color: #f39c12;
+            --success-color: #27ae60;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-color); padding: 20px; display: flex; flex-direction: column; min-height: 100vh; }
+        header { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--primary-color); }
+        header h1 { font-size: 24px; color: var(--primary-color); }
+        .container { display: grid; grid-template-columns: 420px 1fr; gap: 20px; flex: 1; }
+        @media (max-width: 1050px) { .container { grid-template-columns: 1fr; } }
+        
+        .card { background: var(--card-bg); border-radius: 8px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card h2 { font-size: 18px; margin-bottom: 15px; padding-bottom: 5px; border-bottom: 1px solid var(--border-color); color: var(--text-color); }
+        
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 14px; }
+        .form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; outline: none; font-size: 14px; transition: border-color 0.2s; }
+        .form-control:focus { border-color: var(--primary-color); }
+        
+        .btn { background-color: var(--primary-color); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s; }
+        .btn:hover { background-color: #2980b9; }
+        .btn-small { padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc; background: #fff; cursor: pointer; color: #333; margin-right: 4px;}
+        .btn-small:hover { background: #f0f0f0; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { background-color: #f8f9fa; font-weight: 600; color: #7f8c8d; }
+        
+        .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-success { background: #eafaf1; color: var(--success-color); }
+        .badge-warning { background: #fef5e7; color: var(--warning-color); }
+        .badge-danger { background: #fdedec; color: var(--danger-color); }
+        .badge-info { background: #ebf5fb; color: #2980b9; }
+        
+        .checkbox-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); padding: 10px; border-radius: 4px; background: #fbfcfc; }
+        .checkbox-item { display: flex; flex-direction: column; gap: 6px; font-size: 13px; padding: 6px; border-radius: 4px; border: 1px solid transparent; }
+        .checkbox-item:hover { background-color: #f2f4f4; border-color: #e1e8ed; }
+        .checkbox-item.auto-selected { background-color: #eaf4f9; border-color: #aed6f1; }
+        .checkbox-item-header { display: flex; align-items: center; gap: 5px; }
+        
+        .deduct-input { padding: 4px; border: 1px solid #ccc; border-radius: 4px; width: 100%; font-size: 12px; }
+
+        .meal-options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        @media (max-width: 600px) { .meal-options-grid { grid-template-columns: 1fr; } }
+        
+        .log-food-tag { display: inline-block; background: #ebf5fb; color: #2980b9; padding: 2px 6px; margin: 2px; border-radius: 4px; font-size: 12px; border: 1px solid #d6eaf8; }
+        .log-inv-tag { display: inline-block; background: #eafaf1; color: var(--success-color); padding: 2px 6px; margin: 2px; border-radius: 4px; font-size: 12px; border: 1px solid #d5f5e3; font-weight: 500; }
+        
+        .unit-toggle { display: flex; gap: 15px; margin-top: 5px; }
+        .unit-toggle label { font-weight: normal; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;}
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>饮食打卡与库存智能管理系统</h1>
+</header>
+
+<div class="container">
+    <div class="sidebar">
+        <div class="card">
+            <h2>库存实时概览</h2>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>食材</th>
+                            <th>剩余/总</th>
+                            <th>状态</th>
+                            <th style="min-width: 90px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryTableBody">
+                        </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 15px; font-size: 12px; color: #7f8c8d; background: #f8f9fa; padding: 10px; border-radius: 4px;">
+                提示：如果某项食材不需要限制数量，可将其总量设为 <strong>0</strong>，系统将仅记录使用量。
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>补充新食材入库</h2>
+            <div class="form-group">
+                <label for="invName">食材名称</label>
+                <input type="text" id="invName" class="form-control" placeholder="如：早-烤燕麦 或 分装西兰花-晚">
+            </div>
+            
+            <div class="form-group">
+                <label>计量单位</label>
+                <div class="unit-toggle">
+                    <label><input type="radio" name="invUnit" value="次" checked> 按次 (分装包)</label>
+                    <label><input type="radio" name="invUnit" value="g"> 按克重 (g)</label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="invTotal" id="invTotalLabel">总量设定 (0表示不限量)</label>
+                <input type="number" id="invTotal" class="form-control" value="0" min="0">
+            </div>
+            <button class="btn" onclick="addInventory()">创建新类目</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="card">
+            <h2>记录今日餐次</h2>
+            <div class="meal-options-grid">
+                <div class="form-group">
+                    <label for="mealDate">日期</label>
+                    <input type="date" id="mealDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="mealPeriod">餐次</label>
+                    <select id="mealPeriod" class="form-control" onchange="renderDynamicFoodOptions()">
+                        <option value="早餐">早餐</option>
+                        <option value="中餐">中餐</option>
+                        <option value="晚餐">晚餐</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="meal-options-grid" id="foodOptionsContainer">
+                </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label>库存扣减确认 (分装包已自动勾选，克重类勾选后可自动提取克数)</label>
+                <div class="checkbox-group" id="inventoryCheckboxGroup">
+                    </div>
+            </div>
+
+            <div class="form-group">
+                <label for="mealMemo">备注</label>
+                <input type="text" id="mealMemo" class="form-control" placeholder="选填">
+            </div>
+
+            <button class="btn" onclick="saveMealLog()">保存餐次并更新库存</button>
+        </div>
+
+        <div class="card">
+            <h2>饮食日志历史</h2>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>时间/餐次</th>
+                            <th>搭配详情</th>
+                            <th>记录情况</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mealLogTableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 原始数据字典
+    const foodDictionary = {
+        "早餐": {
+            "复合低GI碳水-早": ["早-烤燕麦-66", "早-生藜麦-47", "早-生甜玉米-142", "早-熟糙米饭-105", "早-生土豆-167", "早-生红薯-150", "早-生意大利面-40"],
+            "蛋白质-早": ["鸡蛋清-178", "生鱼肉-115", "生虾肉-103", "生鸡胸肉-103"],
+            "补充蛋白-早": ["脱脂牛奶-122", "酸奶-46"],
+            "非饱和脂肪-早": ["牛油果-61", "橄榄油-11", "蛋黄-41", "花生酱-23"],
+            "膳食纤维1-早": ["菌菇-169", "西兰花-97", "泡发木耳-36", "绿叶菜-115"],
+            "膳食纤维2-早": ["芦笋-102", "秋葵-128", "黄瓜-256", "大番茄-183"]
+        },
+        "中餐": {
+            "复合低GI碳水-中": ["中-烤燕麦-77", "中-生藜麦-55", "中-生甜玉米-167", "中-熟糙米饭-123", "中-生土豆-196", "中-生红薯-167", "中-意大利面-47"],
+            "蛋白质-中": ["鸡蛋清-198", "生鱼肉-128", "生虾肉-114", "生鸡胸肉-114"],
+            "补充蛋白-中": ["脱脂牛奶-136", "酸奶-51"],
+            "非饱和脂肪-中": ["牛油果-50", "橄榄油-9", "蛋黄-35", "花生酱-19"],
+            "膳食纤维2-集中": ["芦笋-117", "秋葵-147", "黄瓜-294", "大番茄-210"]
+        },
+        "晚餐": {
+            "复合低GI碳水-晚": ["晚-烤燕麦-80", "晚-生藜麦-57", "晚-生甜玉米-172", "晚-熟糙米饭-127", "晚-生土豆-202", "晚-生红薯-172", "晚-生意面-49"],
+            "蛋白质-晚": ["鸡蛋清-118", "生鱼肉-76", "生虾肉-68", "生鸡胸肉-68"],
+            "补充蛋白-晚": ["脱脂牛奶-81", "酸奶-31"],
+            "非饱和脂肪-晚": ["牛油果-72", "橄榄油-13", "蛋黄-49", "花生酱-27"],
+            "膳食纤维1-晚": ["菌菇-161", "西兰花-92", "泡发木耳-34", "绿叶菜-109"],
+            "膳食纤维2-晚": ["芦笋-103", "秋葵-129", "黄瓜-259", "大番茄-185"]
+        }
+    };
+
+    // 智能化映射表 (分装包自动勾选)
+    const autoDeductMapping = {
+        "中-生鸡胸肉-114": "分装鸡胸肉-中",
+        "中-生虾肉-114": "分装虾肉-中",
+        "中-生鱼肉-128": "分装鱼肉-中",
+        "中-熟糙米饭-123": "分装糙米饭-中",
+        "中-生藜麦-55": "分装藜麦-中",
+        "芦笋-117": "分装芦笋-中",
+        
+        "晚-熟糙米饭-127": "分装糙米饭-晚",
+        "晚-生藜麦-57": "分装藜麦-晚",
+        "晚-生虾肉-68": "分装虾肉-晚",
+        "晚-生鱼肉-76": "分装鱼肉-晚",
+        "晚-生鸡胸肉-68": "分装鸡胸肉-晚"
+    };
+
+    // 默认库里加入了 unit 属性，烤燕麦预设为 'g'
+    const defaultInventory = [
+        { id: "m1", name: "分装鸡胸肉-中", total: 0, used: 0, unit: "次" },
+        { id: "m2", name: "分装虾肉-中", total: 0, used: 0, unit: "次" },
+        { id: "m3", name: "分装鱼肉-中", total: 0, used: 0, unit: "次" },
+        { id: "m4", name: "分装糙米饭-中", total: 0, used: 0, unit: "次" },
+        { id: "m5", name: "分装藜麦-中", total: 0, used: 0, unit: "次" },
+        { id: "m6", name: "分装芦笋-中", total: 0, used: 0, unit: "次" },
+        { id: "e1", name: "分装糙米饭-晚", total: 0, used: 0, unit: "次" },
+        { id: "e2", name: "分装藜麦-晚", total: 0, used: 0, unit: "次" },
+        { id: "e3", name: "分装虾肉-晚", total: 0, used: 0, unit: "次" },
+        { id: "e4", name: "分装鱼肉-晚", total: 0, used: 0, unit: "次" },
+        { id: "g1", name: "烤燕麦", total: 0, used: 0, unit: "g" }, // 专门为你预设了按克计算的烤燕麦
+        { id: "g2", name: "鸡蛋清", total: 0, used: 0, unit: "g" }  // 鸡蛋清也是按克重比较合理的
+    ];
+
+    // 更新了存储Key v6
+    let inventory = JSON.parse(localStorage.getItem('diet_inventory_v6')) || defaultInventory;
+    let mealLogs = JSON.parse(localStorage.getItem('diet_meal_logs_v6')) || [];
+
+    // 监听单位切换，改变输入框提示
+    document.querySelectorAll('input[name="invUnit"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.getElementById('invTotalLabel').innerText = this.value === 'g' ? '总量设定 (g, 0表示不限量)' : '总量设定 (0表示不限量)';
+        });
+    });
+
+    window.onload = function() {
+        document.getElementById('mealDate').value = new Date().toISOString().split('T')[0];
+        renderAll();
+    };
+
+    function saveToStorage() {
+        localStorage.setItem('diet_inventory_v6', JSON.stringify(inventory));
+        localStorage.setItem('diet_meal_logs_v6', JSON.stringify(mealLogs));
+    }
+
+    function renderAll() {
+        renderInventoryTable();
+        renderDynamicFoodOptions(); // 这里会自动调用 renderInventoryCheckboxes
+        renderMealLogTable();
+    }
+
+    // 渲染左侧库存表格
+    function renderInventoryTable() {
+        const tbody = document.getElementById('inventoryTableBody');
+        tbody.innerHTML = '';
+        
+        const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+        sortedInventory.forEach(item => {
+            const remaining = item.total - item.used;
+            let badge = '';
+            let statusText = '';
+            
+            if (item.total === 0) {
+                // 不限量模式
+                badge = '<span class="badge badge-info">不限总量</span>';
+                statusText = `- / 已记 ${item.used} ${item.unit}`;
+            } else {
+                // 限量模式
+                statusText = `${remaining} / ${item.total} ${item.unit}`;
+                if (remaining <= 0) {
+                    badge = '<span class="badge badge-danger">缺货</span>';
+                } else if ((item.unit === '次' && remaining <= 3) || (item.unit === 'g' && remaining <= 100)) {
+                    badge = '<span class="badge badge-warning">预警</span>';
+                } else {
+                    badge = '<span class="badge badge-success">充足</span>';
+                }
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${item.name}</strong></td>
+                <td>${statusText}</td>
+                <td>${badge}</td>
+                <td>
+                    <button class="btn-small" onclick="editInventory('${item.id}')">✏️</button>
+                    <button class="btn-small" onclick="deleteInventory('${item.id}')" style="color: #e74c3c;">🗑️</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 编辑库存总量
+    function editInventory(id) {
+        const item = inventory.find(i => i.id === id);
+        if (!item) return;
+
+        const newTotal = prompt(`【${item.name}】(${item.unit})\n请输入备餐总量：\n(若是不限量的，请输入 0)`, item.total);
+        
+        if (newTotal !== null && newTotal.trim() !== '' && !isNaN(newTotal)) {
+            const parsedTotal = parseFloat(newTotal);
+            if (parsedTotal >= 0) {
+                item.total = parsedTotal;
+                
+                if (item.used > 0) {
+                    if (confirm(`已更新总量。\n是否清空之前的已用记录，将已用 ${item.unit} 数重置为 0？`)) {
+                        item.used = 0;
+                    }
+                }
+                saveToStorage();
+                renderAll();
+            } else {
+                alert("数量不能为负数哦！");
+            }
+        }
+    }
+
+    // 删除库存条目
+    function deleteInventory(id) {
+        const item = inventory.find(i => i.id === id);
+        if (confirm(`确定要删除【${item.name}】吗？`)) {
+            inventory = inventory.filter(i => i.id !== id);
+            saveToStorage();
+            renderAll();
+        }
+    }
+
+    // 渲染打卡区的库存复选框
+    function renderInventoryCheckboxes() {
+        const container = document.getElementById('inventoryCheckboxGroup');
+        container.innerHTML = '';
+        if (inventory.length === 0) return;
+
+        const selectedFoods = Array.from(document.querySelectorAll('.food-selector'))
+                                  .map(sel => sel.value)
+                                  .filter(val => val !== "");
+
+        const neededInvNames = selectedFoods.map(food => autoDeductMapping[food]).filter(name => name);
+        const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+
+        sortedInventory.forEach(item => {
+            const remaining = item.total - item.used;
+            const shouldAutoCheck = neededInvNames.includes(item.name);
+            const isDisabled = (item.total > 0 && remaining <= 0);
+            
+            let displayCount = '';
+            if (item.total === 0) {
+                displayCount = `(已记${item.used}${item.unit})`;
+            } else {
+                displayCount = `(余${remaining}${item.unit})`;
+            }
+
+            const div = document.createElement('div');
+            div.className = `checkbox-item ${shouldAutoCheck ? 'auto-selected' : ''}`;
+            
+            let extraInput = '';
+            // 如果是按克计算的食材，准备一个扣减输入框
+            if (item.unit === 'g') {
+                extraInput = `<input type="number" id="deduct_${item.id}" class="deduct-input" placeholder="自动提取克数" style="display:none;" min="0">`;
+            }
+
+            div.innerHTML = `
+                <div class="checkbox-item-header">
+                    <input type="checkbox" id="chk_${item.id}" value="${item.id}" class="inv-checkbox" 
+                        onchange="handleCheckboxChange(this, '${item.id}', '${item.name}', '${item.unit}')"
+                        ${shouldAutoCheck ? 'checked' : ''} 
+                        ${isDisabled ? 'disabled' : ''}>
+                    <label for="chk_${item.id}">${item.name} ${displayCount}</label>
+                </div>
+                ${extraInput}
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    // 处理复选框变化：针对克重单位智能提取数字
+    function handleCheckboxChange(checkbox, invId, invName, unit) {
+        if (unit !== 'g') return; // 如果是“次”，不需要输入框，直接返回
+        
+        const inputField = document.getElementById(`deduct_${invId}`);
+        if (checkbox.checked) {
+            inputField.style.display = 'block'; // 勾选时显示输入框
+            
+            // 智能提取：去下拉框里找含有这个食材名字的选项，提取克数
+            const selectors = document.querySelectorAll('.food-selector');
+            selectors.forEach(sel => {
+                if (sel.value && sel.value.includes(invName)) {
+                    // 比如 sel.value 是 "早-烤燕麦-66"，通过 '-' 切割并提取最后一部分
+                    const parts = sel.value.split('-');
+                    const lastPart = parts[parts.length - 1]; 
+                    if (!isNaN(lastPart)) {
+                        inputField.value = lastPart; // 自动帮你填入提取出的克数
+                    }
+                }
+            });
+        } else {
+            inputField.style.display = 'none'; // 取消勾选时隐藏
+            inputField.value = '';
+        }
+    }
+
+    // 渲染动态食物选择下拉框
+    function renderDynamicFoodOptions() {
+        const period = document.getElementById('mealPeriod').value;
+        const container = document.getElementById('foodOptionsContainer');
+        container.innerHTML = '';
+
+        const currentCategories = foodDictionary[period];
+        for (let category in currentCategories) {
+            const div = document.createElement('div');
+            div.className = 'form-group';
+            
+            let optionsHtml = `<option value="">-- 未选择 --</option>`;
+            currentCategories[category].forEach(food => {
+                optionsHtml += `<option value="${food}">${food}</option>`;
+            });
+
+            div.innerHTML = `
+                <label>${category}</label>
+                <select class="form-control food-selector" onchange="renderInventoryCheckboxes()">
+                    ${optionsHtml}
+                </select>
+            `;
+            container.appendChild(div);
+        }
+        renderInventoryCheckboxes();
+    }
+
+    // 补充新类目
+    function addInventory() {
+        const name = document.getElementById('invName').value.trim();
+        const total = parseFloat(document.getElementById('invTotal').value);
+        const unit = document.querySelector('input[name="invUnit"]:checked').value;
+
+        if (!name || isNaN(total) || total < 0) {
+            alert('请输入食材名称和有效的数量（0或正数）！');
+            return;
+        }
+
+        const existingItem = inventory.find(item => item.name === name);
+        if (existingItem) {
+            alert('该食材名称已存在，请直接在列表中点击 ✏️ 修改数量即可。');
+        } else {
+            inventory.push({
+                id: Date.now().toString(),
+                name: name,
+                total: total,
+                used: 0,
+                unit: unit
+            });
+            saveToStorage();
+            renderAll();
+            document.getElementById('invName').value = '';
+            document.getElementById('invTotal').value = '0';
+        }
+    }
+
+    // 保存餐次记录
+    function saveMealLog() {
+        const dateVal = document.getElementById('mealDate').value;
+        const period = document.getElementById('mealPeriod').value;
+        const memo = document.getElementById('mealMemo').value.trim();
+
+        if (!dateVal) return alert('请选择日期！');
+
+        let foodCombination = [];
+        document.querySelectorAll('.food-selector').forEach(sel => {
+            if (sel.value) foodCombination.push(sel.value);
+        });
+
+        if (foodCombination.length === 0) return alert('请至少选择一项食物！');
+
+        let deductedSummary = [];
+        const checkedBoxes = document.querySelectorAll('.inv-checkbox:checked');
+        
+        for (let cb of checkedBoxes) {
+            const invId = cb.value;
+            const invItem = inventory.find(item => item.id === invId);
+            
+            if (invItem) {
+                let deductAmount = 1; // 按次的话默认扣减 1
+                
+                // 如果是克重，需要读取输入框的值
+                if (invItem.unit === 'g') {
+                    const deductInput = document.getElementById(`deduct_${invId}`);
+                    deductAmount = parseFloat(deductInput.value);
+                    if (isNaN(deductAmount) || deductAmount <= 0) {
+                        alert(`请输入【${invItem.name}】实际消耗的克数！`);
+                        return; // 中断保存
+                    }
+                }
+                
+                // 扣减或记录逻辑
+                if (invItem.total === 0 || invItem.total - invItem.used >= deductAmount) {
+                    invItem.used += deductAmount;
+                    deductedSummary.push(`${invItem.name} (-${deductAmount}${invItem.unit})`);
+                } else if (invItem.total > 0 && invItem.total - invItem.used < deductAmount) {
+                    alert(`【${invItem.name}】库存不足，无法扣减 ${deductAmount}${invItem.unit}！`);
+                    return;
+                }
+            }
+        }
+
+        const newLog = {
+            id: Date.now().toString(),
+            date: dateVal,
+            period: period,
+            foods: foodCombination,
+            inventoryDeducted: deductedSummary,
+            memo: memo
+        };
+
+        mealLogs.unshift(newLog);
+        saveToStorage();
+        document.getElementById('mealMemo').value = '';
+        renderAll();
+        alert(`${dateVal} ${period} 记录成功！`);
+    }
+
+    // 渲染历史记录表
+    function renderMealLogTable() {
+        const tbody = document.getElementById('mealLogTableBody');
+        tbody.innerHTML = '';
+        
+        if (mealLogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#95a5a6;">暂无饮食记录</td></tr>';
+            return;
+        }
+
+        mealLogs.forEach(log => {
+            const tr = document.createElement('tr');
+            const foodsHtml = log.foods.map(f => `<span class="log-food-tag">${f}</span>`).join('');
+            const invHtml = log.inventoryDeducted.length > 0 
+                ? log.inventoryDeducted.map(i => `<span class="log-inv-tag">${i}</span>`).join('')
+                : '<span style="color:#bdc3c7; font-size:12px;">无库存关联</span>';
+
+            tr.innerHTML = `
+                <td><strong>${log.date}</strong><br>${log.period}</td>
+                <td>
+                    <div style="max-width:380px;">${foodsHtml}</div>
+                    ${log.memo ? `<div style="font-size:12px; color:#7f8c8d; margin-top:4px;">备注: ${log.memo}</div>` : ''}
+                </td>
+                <td>${invHtml}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+</script>
+</body>
+</html>
