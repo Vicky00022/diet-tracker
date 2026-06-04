@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>饮食打卡与库存管理系统 (多单位版)</title>
+    <title>饮食打卡与库存云端管理系统</title>
     <style>
         :root {
             --primary-color: #3498db;
@@ -18,8 +18,11 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
         body { background-color: var(--bg-color); color: var(--text-color); padding: 20px; display: flex; flex-direction: column; min-height: 100vh; }
-        header { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--primary-color); }
+        header { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--primary-color); display: flex; justify-content: space-between; align-items: center; }
         header h1 { font-size: 24px; color: var(--primary-color); }
+        .cloud-status { font-size: 13px; padding: 4px 10px; border-radius: 12px; background: #f39c12; color: white; font-weight: bold; }
+        .cloud-status.online { background: #27ae60; }
+        
         .container { display: grid; grid-template-columns: 420px 1fr; gap: 20px; flex: 1; }
         @media (max-width: 1050px) { .container { grid-template-columns: 1fr; } }
         
@@ -33,6 +36,7 @@
         
         .btn { background-color: var(--primary-color); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s; }
         .btn:hover { background-color: #2980b9; }
+        .btn:disabled { background-color: #bdc3c7; cursor: not-allowed; }
         .btn-small { padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc; background: #fff; cursor: pointer; color: #333; margin-right: 4px;}
         .btn-small:hover { background: #f0f0f0; }
         
@@ -62,12 +66,18 @@
         
         .unit-toggle { display: flex; gap: 15px; margin-top: 5px; }
         .unit-toggle label { font-weight: normal; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;}
+        
+        /* 遮罩层 */
+        #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); display: flex; justify-content: center; align-items: center; z-index: 9999; font-size: 20px; font-weight: bold; color: var(--primary-color); }
     </style>
 </head>
 <body>
 
+<div id="loadingOverlay">正在同步云端数据，请稍候...</div>
+
 <header>
     <h1>饮食打卡与库存智能管理系统</h1>
+    <div id="cloudStatus" class="cloud-status">连接中...</div>
 </header>
 
 <div class="container">
@@ -84,12 +94,11 @@
                             <th style="min-width: 90px;">操作</th>
                         </tr>
                     </thead>
-                    <tbody id="inventoryTableBody">
-                        </tbody>
+                    <tbody id="inventoryTableBody"></tbody>
                 </table>
             </div>
             <div style="margin-top: 15px; font-size: 12px; color: #7f8c8d; background: #f8f9fa; padding: 10px; border-radius: 4px;">
-                提示：如果某项食材不需要限制数量，可将其总量设为 <strong>0</strong>，系统将仅记录使用量。
+                提示：如果某项食材不需要限制数量，可将其总量设为 <strong>0</strong>。
             </div>
         </div>
 
@@ -112,7 +121,7 @@
                 <label for="invTotal" id="invTotalLabel">总量设定 (0表示不限量)</label>
                 <input type="number" id="invTotal" class="form-control" value="0" min="0">
             </div>
-            <button class="btn" onclick="addInventory()">创建新类目</button>
+            <button class="btn" id="btnAddInv" onclick="addInventory()">创建新类目</button>
         </div>
     </div>
 
@@ -134,13 +143,11 @@
                 </div>
             </div>
 
-            <div class="meal-options-grid" id="foodOptionsContainer">
-                </div>
+            <div class="meal-options-grid" id="foodOptionsContainer"></div>
 
             <div class="form-group" style="margin-top: 15px;">
                 <label>库存扣减确认 (分装包已自动勾选，克重类勾选后可自动提取克数)</label>
-                <div class="checkbox-group" id="inventoryCheckboxGroup">
-                    </div>
+                <div class="checkbox-group" id="inventoryCheckboxGroup"></div>
             </div>
 
             <div class="form-group">
@@ -148,7 +155,7 @@
                 <input type="text" id="mealMemo" class="form-control" placeholder="选填">
             </div>
 
-            <button class="btn" onclick="saveMealLog()">保存餐次并更新库存</button>
+            <button class="btn" id="btnSaveLog" onclick="saveMealLog()">保存餐次并同步云端</button>
         </div>
 
         <div class="card">
@@ -162,8 +169,7 @@
                             <th>记录情况</th>
                         </tr>
                     </thead>
-                    <tbody id="mealLogTableBody">
-                        </tbody>
+                    <tbody id="mealLogTableBody"></tbody>
                 </table>
             </div>
         </div>
@@ -171,7 +177,15 @@
 </div>
 
 <script>
-    // 原始数据字典
+    // ==========================================
+    // ☁️ 云端数据库配置区 (请在此处粘贴你的两把钥匙)
+    // ==========================================
+    const BIN_ID = "6a216ef8da38895dfe865189";       // 替换为你刚才生成的 Bin ID
+    const API_KEY = "$2a$10$xf6tDSU0bx7nBkFcUd/PAOG36Cea6KKPg7Gk/nksdr0LSvPPJYLne";     // 替换为你的 Access Key
+    // ==========================================
+
+    const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
     const foodDictionary = {
         "早餐": {
             "复合低GI碳水-早": ["早-烤燕麦-66", "早-生藜麦-47", "早-生甜玉米-142", "早-熟糙米饭-105", "早-生土豆-167", "早-生红薯-150", "早-生意大利面-40"],
@@ -198,152 +212,149 @@
         }
     };
 
-    // 智能化映射表 (分装包自动勾选)
     const autoDeductMapping = {
-        "中-生鸡胸肉-114": "分装鸡胸肉-中",
-        "中-生虾肉-114": "分装虾肉-中",
-        "中-生鱼肉-128": "分装鱼肉-中",
-        "中-熟糙米饭-123": "分装糙米饭-中",
-        "中-生藜麦-55": "分装藜麦-中",
-        "芦笋-117": "分装芦笋-中",
-        
-        "晚-熟糙米饭-127": "分装糙米饭-晚",
-        "晚-生藜麦-57": "分装藜麦-晚",
-        "晚-生虾肉-68": "分装虾肉-晚",
-        "晚-生鱼肉-76": "分装鱼肉-晚",
-        "晚-生鸡胸肉-68": "分装鸡胸肉-晚"
+        "中-生鸡胸肉-114": "分装鸡胸肉-中", "中-生虾肉-114": "分装虾肉-中", "中-生鱼肉-128": "分装鱼肉-中", "中-熟糙米饭-123": "分装糙米饭-中", "中-生藜麦-55": "分装藜麦-中", "芦笋-117": "分装芦笋-中",
+        "晚-熟糙米饭-127": "分装糙米饭-晚", "晚-生藜麦-57": "分装藜麦-晚", "晚-生虾肉-68": "分装虾肉-晚", "晚-生鱼肉-76": "分装鱼肉-晚", "晚-生鸡胸肉-68": "分装鸡胸肉-晚"
     };
 
-    // 默认库里加入了 unit 属性，烤燕麦预设为 'g'
-    const defaultInventory = [
-        { id: "m1", name: "分装鸡胸肉-中", total: 0, used: 0, unit: "次" },
-        { id: "m2", name: "分装虾肉-中", total: 0, used: 0, unit: "次" },
-        { id: "m3", name: "分装鱼肉-中", total: 0, used: 0, unit: "次" },
-        { id: "m4", name: "分装糙米饭-中", total: 0, used: 0, unit: "次" },
-        { id: "m5", name: "分装藜麦-中", total: 0, used: 0, unit: "次" },
-        { id: "m6", name: "分装芦笋-中", total: 0, used: 0, unit: "次" },
-        { id: "e1", name: "分装糙米饭-晚", total: 0, used: 0, unit: "次" },
-        { id: "e2", name: "分装藜麦-晚", total: 0, used: 0, unit: "次" },
-        { id: "e3", name: "分装虾肉-晚", total: 0, used: 0, unit: "次" },
-        { id: "e4", name: "分装鱼肉-晚", total: 0, used: 0, unit: "次" },
-        { id: "g1", name: "烤燕麦", total: 0, used: 0, unit: "g" }, // 专门为你预设了按克计算的烤燕麦
-        { id: "g2", name: "鸡蛋清", total: 0, used: 0, unit: "g" }  // 鸡蛋清也是按克重比较合理的
-    ];
+    let inventory = [];
+    let mealLogs = [];
 
-    // 更新了存储Key v6
-    let inventory = JSON.parse(localStorage.getItem('diet_inventory_v6')) || defaultInventory;
-    let mealLogs = JSON.parse(localStorage.getItem('diet_meal_logs_v6')) || [];
-
-    // 监听单位切换，改变输入框提示
     document.querySelectorAll('input[name="invUnit"]').forEach(radio => {
         radio.addEventListener('change', function() {
             document.getElementById('invTotalLabel').innerText = this.value === 'g' ? '总量设定 (g, 0表示不限量)' : '总量设定 (0表示不限量)';
         });
     });
 
-    window.onload = function() {
+    window.onload = async function() {
         document.getElementById('mealDate').value = new Date().toISOString().split('T')[0];
-        renderAll();
+        if(BIN_ID.includes("YOUR_") || API_KEY.includes("YOUR_")) {
+            alert("请先在代码中配置您的 JSONBin ID 和 API Key！");
+            document.getElementById('loadingOverlay').innerHTML = "配置未完成，系统已暂停";
+            return;
+        }
+        await loadFromCloud();
     };
 
-    function saveToStorage() {
-        localStorage.setItem('diet_inventory_v6', JSON.stringify(inventory));
-        localStorage.setItem('diet_meal_logs_v6', JSON.stringify(mealLogs));
+    // ====== 云端通信核心功能 ======
+    async function loadFromCloud() {
+        try {
+            const response = await fetch(API_URL, {
+                headers: { 'X-Master-Key': API_KEY }
+            });
+            const data = await response.json();
+            
+            if (data.record) {
+                inventory = data.record.inventory || [];
+                mealLogs = data.record.mealLogs || [];
+                
+                document.getElementById('cloudStatus').innerText = '✅ 云端已连接';
+                document.getElementById('cloudStatus').classList.add('online');
+                renderAll();
+            } else {
+                throw new Error("读取数据格式错误");
+            }
+        } catch (error) {
+            alert("从云端读取数据失败，请检查密钥是否正确！");
+            console.error(error);
+            document.getElementById('cloudStatus').innerText = '❌ 连接失败';
+        } finally {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
     }
+
+    async function saveToCloud() {
+        // 保存时禁用按钮，防止重复提交
+        const btns = document.querySelectorAll('.btn');
+        btns.forEach(b => b.disabled = true);
+        const originalText = document.getElementById('btnSaveLog').innerText;
+        document.getElementById('btnSaveLog').innerText = '🔄 正在同步到云端...';
+
+        const payload = { inventory: inventory, mealLogs: mealLogs };
+        
+        try {
+            const response = await fetch(API_URL, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) throw new Error("同步失败");
+            
+            console.log("云端同步成功！");
+        } catch (error) {
+            alert("保存到云端失败，请检查网络！你的数据可能未成功同步。");
+            console.error(error);
+        } finally {
+            btns.forEach(b => b.disabled = false);
+            document.getElementById('btnSaveLog').innerText = originalText;
+        }
+    }
+    // =============================
 
     function renderAll() {
         renderInventoryTable();
-        renderDynamicFoodOptions(); // 这里会自动调用 renderInventoryCheckboxes
+        renderDynamicFoodOptions();
         renderMealLogTable();
     }
 
-    // 渲染左侧库存表格
     function renderInventoryTable() {
         const tbody = document.getElementById('inventoryTableBody');
         tbody.innerHTML = '';
-        
         const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-
         sortedInventory.forEach(item => {
             const remaining = item.total - item.used;
-            let badge = '';
-            let statusText = '';
+            let badge = ''; let statusText = '';
             
             if (item.total === 0) {
-                // 不限量模式
                 badge = '<span class="badge badge-info">不限总量</span>';
                 statusText = `- / 已记 ${item.used} ${item.unit}`;
             } else {
-                // 限量模式
                 statusText = `${remaining} / ${item.total} ${item.unit}`;
-                if (remaining <= 0) {
-                    badge = '<span class="badge badge-danger">缺货</span>';
-                } else if ((item.unit === '次' && remaining <= 3) || (item.unit === 'g' && remaining <= 100)) {
-                    badge = '<span class="badge badge-warning">预警</span>';
-                } else {
-                    badge = '<span class="badge badge-success">充足</span>';
-                }
+                if (remaining <= 0) badge = '<span class="badge badge-danger">缺货</span>';
+                else if ((item.unit === '次' && remaining <= 3) || (item.unit === 'g' && remaining <= 100)) badge = '<span class="badge badge-warning">预警</span>';
+                else badge = '<span class="badge badge-success">充足</span>';
             }
 
             const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>${item.name}</strong></td>
-                <td>${statusText}</td>
-                <td>${badge}</td>
-                <td>
-                    <button class="btn-small" onclick="editInventory('${item.id}')">✏️</button>
-                    <button class="btn-small" onclick="deleteInventory('${item.id}')" style="color: #e74c3c;">🗑️</button>
-                </td>
-            `;
+            tr.innerHTML = `<td><strong>${item.name}</strong></td><td>${statusText}</td><td>${badge}</td>
+                <td><button class="btn-small" onclick="editInventory('${item.id}')">✏️</button><button class="btn-small" onclick="deleteInventory('${item.id}')" style="color: #e74c3c;">🗑️</button></td>`;
             tbody.appendChild(tr);
         });
     }
 
-    // 编辑库存总量
-    function editInventory(id) {
+    async function editInventory(id) {
         const item = inventory.find(i => i.id === id);
         if (!item) return;
-
         const newTotal = prompt(`【${item.name}】(${item.unit})\n请输入备餐总量：\n(若是不限量的，请输入 0)`, item.total);
-        
         if (newTotal !== null && newTotal.trim() !== '' && !isNaN(newTotal)) {
             const parsedTotal = parseFloat(newTotal);
             if (parsedTotal >= 0) {
                 item.total = parsedTotal;
-                
-                if (item.used > 0) {
-                    if (confirm(`已更新总量。\n是否清空之前的已用记录，将已用 ${item.unit} 数重置为 0？`)) {
-                        item.used = 0;
-                    }
-                }
-                saveToStorage();
+                if (item.used > 0) if (confirm(`已更新总量。\n是否清空之前的已用记录，将已用 ${item.unit} 数重置为 0？`)) item.used = 0;
                 renderAll();
-            } else {
-                alert("数量不能为负数哦！");
-            }
+                await saveToCloud();
+            } else alert("数量不能为负数哦！");
         }
     }
 
-    // 删除库存条目
-    function deleteInventory(id) {
+    async function deleteInventory(id) {
         const item = inventory.find(i => i.id === id);
         if (confirm(`确定要删除【${item.name}】吗？`)) {
             inventory = inventory.filter(i => i.id !== id);
-            saveToStorage();
             renderAll();
+            await saveToCloud();
         }
     }
 
-    // 渲染打卡区的库存复选框
     function renderInventoryCheckboxes() {
         const container = document.getElementById('inventoryCheckboxGroup');
         container.innerHTML = '';
         if (inventory.length === 0) return;
-
-        const selectedFoods = Array.from(document.querySelectorAll('.food-selector'))
-                                  .map(sel => sel.value)
-                                  .filter(val => val !== "");
-
+        const selectedFoods = Array.from(document.querySelectorAll('.food-selector')).map(sel => sel.value).filter(val => val !== "");
         const neededInvNames = selectedFoods.map(food => autoDeductMapping[food]).filter(name => name);
         const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 
@@ -351,132 +362,76 @@
             const remaining = item.total - item.used;
             const shouldAutoCheck = neededInvNames.includes(item.name);
             const isDisabled = (item.total > 0 && remaining <= 0);
-            
-            let displayCount = '';
-            if (item.total === 0) {
-                displayCount = `(已记${item.used}${item.unit})`;
-            } else {
-                displayCount = `(余${remaining}${item.unit})`;
-            }
+            let displayCount = item.total === 0 ? `(已记${item.used}${item.unit})` : `(余${remaining}${item.unit})`;
 
             const div = document.createElement('div');
             div.className = `checkbox-item ${shouldAutoCheck ? 'auto-selected' : ''}`;
-            
-            let extraInput = '';
-            // 如果是按克计算的食材，准备一个扣减输入框
-            if (item.unit === 'g') {
-                extraInput = `<input type="number" id="deduct_${item.id}" class="deduct-input" placeholder="自动提取克数" style="display:none;" min="0">`;
-            }
+            let extraInput = item.unit === 'g' ? `<input type="number" id="deduct_${item.id}" class="deduct-input" placeholder="自动提取克数" style="display:none;" min="0">` : '';
 
             div.innerHTML = `
                 <div class="checkbox-item-header">
-                    <input type="checkbox" id="chk_${item.id}" value="${item.id}" class="inv-checkbox" 
-                        onchange="handleCheckboxChange(this, '${item.id}', '${item.name}', '${item.unit}')"
-                        ${shouldAutoCheck ? 'checked' : ''} 
-                        ${isDisabled ? 'disabled' : ''}>
+                    <input type="checkbox" id="chk_${item.id}" value="${item.id}" class="inv-checkbox" onchange="handleCheckboxChange(this, '${item.id}', '${item.name}', '${item.unit}')" ${shouldAutoCheck ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
                     <label for="chk_${item.id}">${item.name} ${displayCount}</label>
-                </div>
-                ${extraInput}
-            `;
+                </div>${extraInput}`;
             container.appendChild(div);
         });
     }
 
-    // 处理复选框变化：针对克重单位智能提取数字
     function handleCheckboxChange(checkbox, invId, invName, unit) {
-        if (unit !== 'g') return; // 如果是“次”，不需要输入框，直接返回
-        
+        if (unit !== 'g') return;
         const inputField = document.getElementById(`deduct_${invId}`);
         if (checkbox.checked) {
-            inputField.style.display = 'block'; // 勾选时显示输入框
-            
-            // 智能提取：去下拉框里找含有这个食材名字的选项，提取克数
-            const selectors = document.querySelectorAll('.food-selector');
-            selectors.forEach(sel => {
+            inputField.style.display = 'block';
+            document.querySelectorAll('.food-selector').forEach(sel => {
                 if (sel.value && sel.value.includes(invName)) {
-                    // 比如 sel.value 是 "早-烤燕麦-66"，通过 '-' 切割并提取最后一部分
                     const parts = sel.value.split('-');
                     const lastPart = parts[parts.length - 1]; 
-                    if (!isNaN(lastPart)) {
-                        inputField.value = lastPart; // 自动帮你填入提取出的克数
-                    }
+                    if (!isNaN(lastPart)) inputField.value = lastPart;
                 }
             });
         } else {
-            inputField.style.display = 'none'; // 取消勾选时隐藏
-            inputField.value = '';
+            inputField.style.display = 'none'; inputField.value = '';
         }
     }
 
-    // 渲染动态食物选择下拉框
     function renderDynamicFoodOptions() {
         const period = document.getElementById('mealPeriod').value;
         const container = document.getElementById('foodOptionsContainer');
         container.innerHTML = '';
-
         const currentCategories = foodDictionary[period];
         for (let category in currentCategories) {
             const div = document.createElement('div');
             div.className = 'form-group';
-            
             let optionsHtml = `<option value="">-- 未选择 --</option>`;
-            currentCategories[category].forEach(food => {
-                optionsHtml += `<option value="${food}">${food}</option>`;
-            });
-
-            div.innerHTML = `
-                <label>${category}</label>
-                <select class="form-control food-selector" onchange="renderInventoryCheckboxes()">
-                    ${optionsHtml}
-                </select>
-            `;
+            currentCategories[category].forEach(food => optionsHtml += `<option value="${food}">${food}</option>`);
+            div.innerHTML = `<label>${category}</label><select class="form-control food-selector" onchange="renderInventoryCheckboxes()">${optionsHtml}</select>`;
             container.appendChild(div);
         }
         renderInventoryCheckboxes();
     }
 
-    // 补充新类目
-    function addInventory() {
+    async function addInventory() {
         const name = document.getElementById('invName').value.trim();
         const total = parseFloat(document.getElementById('invTotal').value);
         const unit = document.querySelector('input[name="invUnit"]:checked').value;
 
-        if (!name || isNaN(total) || total < 0) {
-            alert('请输入食材名称和有效的数量（0或正数）！');
-            return;
-        }
-
-        const existingItem = inventory.find(item => item.name === name);
-        if (existingItem) {
-            alert('该食材名称已存在，请直接在列表中点击 ✏️ 修改数量即可。');
-        } else {
-            inventory.push({
-                id: Date.now().toString(),
-                name: name,
-                total: total,
-                used: 0,
-                unit: unit
-            });
-            saveToStorage();
-            renderAll();
-            document.getElementById('invName').value = '';
-            document.getElementById('invTotal').value = '0';
-        }
+        if (!name || isNaN(total) || total < 0) return alert('请输入食材名称和有效的数量（0或正数）！');
+        if (inventory.find(item => item.name === name)) return alert('该食材名称已存在，请直接在列表中点击 ✏️ 修改数量即可。');
+        
+        inventory.push({ id: Date.now().toString(), name: name, total: total, used: 0, unit: unit });
+        document.getElementById('invName').value = ''; document.getElementById('invTotal').value = '0';
+        renderAll();
+        await saveToCloud();
     }
 
-    // 保存餐次记录
-    function saveMealLog() {
+    async function saveMealLog() {
         const dateVal = document.getElementById('mealDate').value;
         const period = document.getElementById('mealPeriod').value;
         const memo = document.getElementById('mealMemo').value.trim();
 
         if (!dateVal) return alert('请选择日期！');
-
         let foodCombination = [];
-        document.querySelectorAll('.food-selector').forEach(sel => {
-            if (sel.value) foodCombination.push(sel.value);
-        });
-
+        document.querySelectorAll('.food-selector').forEach(sel => { if (sel.value) foodCombination.push(sel.value); });
         if (foodCombination.length === 0) return alert('请至少选择一项食物！');
 
         let deductedSummary = [];
@@ -485,72 +440,41 @@
         for (let cb of checkedBoxes) {
             const invId = cb.value;
             const invItem = inventory.find(item => item.id === invId);
-            
             if (invItem) {
-                let deductAmount = 1; // 按次的话默认扣减 1
-                
-                // 如果是克重，需要读取输入框的值
+                let deductAmount = 1;
                 if (invItem.unit === 'g') {
                     const deductInput = document.getElementById(`deduct_${invId}`);
                     deductAmount = parseFloat(deductInput.value);
-                    if (isNaN(deductAmount) || deductAmount <= 0) {
-                        alert(`请输入【${invItem.name}】实际消耗的克数！`);
-                        return; // 中断保存
-                    }
+                    if (isNaN(deductAmount) || deductAmount <= 0) return alert(`请输入【${invItem.name}】实际消耗的克数！`);
                 }
-                
-                // 扣减或记录逻辑
                 if (invItem.total === 0 || invItem.total - invItem.used >= deductAmount) {
                     invItem.used += deductAmount;
                     deductedSummary.push(`${invItem.name} (-${deductAmount}${invItem.unit})`);
                 } else if (invItem.total > 0 && invItem.total - invItem.used < deductAmount) {
-                    alert(`【${invItem.name}】库存不足，无法扣减 ${deductAmount}${invItem.unit}！`);
-                    return;
+                    return alert(`【${invItem.name}】库存不足，无法扣减 ${deductAmount}${invItem.unit}！`);
                 }
             }
         }
 
-        const newLog = {
-            id: Date.now().toString(),
-            date: dateVal,
-            period: period,
-            foods: foodCombination,
-            inventoryDeducted: deductedSummary,
-            memo: memo
-        };
-
-        mealLogs.unshift(newLog);
-        saveToStorage();
+        mealLogs.unshift({ id: Date.now().toString(), date: dateVal, period: period, foods: foodCombination, inventoryDeducted: deductedSummary, memo: memo });
         document.getElementById('mealMemo').value = '';
         renderAll();
-        alert(`${dateVal} ${period} 记录成功！`);
+        
+        // 关键：触发保存到云端
+        await saveToCloud();
+        alert(`${dateVal} ${period} 记录成功，已同步至云端！`);
     }
 
-    // 渲染历史记录表
     function renderMealLogTable() {
         const tbody = document.getElementById('mealLogTableBody');
         tbody.innerHTML = '';
-        
-        if (mealLogs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#95a5a6;">暂无饮食记录</td></tr>';
-            return;
-        }
+        if (mealLogs.length === 0) return tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#95a5a6;">暂无饮食记录</td></tr>';
 
         mealLogs.forEach(log => {
             const tr = document.createElement('tr');
             const foodsHtml = log.foods.map(f => `<span class="log-food-tag">${f}</span>`).join('');
-            const invHtml = log.inventoryDeducted.length > 0 
-                ? log.inventoryDeducted.map(i => `<span class="log-inv-tag">${i}</span>`).join('')
-                : '<span style="color:#bdc3c7; font-size:12px;">无库存关联</span>';
-
-            tr.innerHTML = `
-                <td><strong>${log.date}</strong><br>${log.period}</td>
-                <td>
-                    <div style="max-width:380px;">${foodsHtml}</div>
-                    ${log.memo ? `<div style="font-size:12px; color:#7f8c8d; margin-top:4px;">备注: ${log.memo}</div>` : ''}
-                </td>
-                <td>${invHtml}</td>
-            `;
+            const invHtml = log.inventoryDeducted.length > 0 ? log.inventoryDeducted.map(i => `<span class="log-inv-tag">${i}</span>`).join('') : '<span style="color:#bdc3c7; font-size:12px;">无库存关联</span>';
+            tr.innerHTML = `<td><strong>${log.date}</strong><br>${log.period}</td><td><div style="max-width:380px;">${foodsHtml}</div>${log.memo ? `<div style="font-size:12px; color:#7f8c8d; margin-top:4px;">备注: ${log.memo}</div>` : ''}</td><td>${invHtml}</td>`;
             tbody.appendChild(tr);
         });
     }
