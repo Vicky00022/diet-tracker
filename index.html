@@ -166,7 +166,7 @@
                         <tr>
                             <th>时间/餐次</th>
                             <th>搭配详情</th>
-                            <th>记录情况</th>
+                            <th>记录情况 (含退回)</th>
                         </tr>
                     </thead>
                     <tbody id="mealLogTableBody"></tbody>
@@ -178,10 +178,10 @@
 
 <script>
     // ==========================================
-    // ☁️ 云端数据库配置区 (请在此处粘贴你的两把钥匙)
+    // ⚠️ 云端秘钥 (请务必粘贴回你的 ID 和 Key)
     // ==========================================
-    const BIN_ID = "6a216ef8da38895dfe865189";       // 替换为你刚才生成的 Bin ID
-    const API_KEY = "$2a$10$xf6tDSU0bx7nBkFcUd/PAOG36Cea6KKPg7Gk/nksdr0LSvPPJYLne";     // 替换为你的 Access Key
+    const BIN_ID = "6a216ef8da38895dfe865189";       
+    const API_KEY = "$2a$10$xf6tDSU0bx7nBkFcUd/PAOG36Cea6KKPg7Gk/nksdr0LSvPPJYLne";     
     // ==========================================
 
     const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
@@ -236,14 +236,12 @@
         await loadFromCloud();
     };
 
-  // ====== 云端通信核心功能 ======
     async function loadFromCloud() {
         try {
-            // 在地址后加上 /latest 强制拉取最新数据
             const response = await fetch(API_URL + '/latest', {
                 headers: { 
                     'X-Access-Key': API_KEY,
-                    'X-Master-Key': API_KEY // 双重兼容，防止填错 Key 导致无权限
+                    'X-Master-Key': API_KEY
                 }
             });
             const data = await response.json();
@@ -251,7 +249,6 @@
             if (data.record) {
                 inventory = data.record.inventory || [];
                 mealLogs = data.record.mealLogs || [];
-                
                 document.getElementById('cloudStatus').innerText = '✅ 云端已同步';
                 document.getElementById('cloudStatus').classList.add('online');
                 renderAll();
@@ -268,7 +265,6 @@
     }
 
     async function saveToCloud() {
-        // 保存时禁用按钮，防止连点
         const btns = document.querySelectorAll('.btn');
         btns.forEach(b => b.disabled = true);
         const btnLog = document.getElementById('btnSaveLog');
@@ -283,14 +279,13 @@
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Access-Key': API_KEY,
-                    'X-Master-Key': API_KEY, // 双重兼容
-                    'X-Bin-Versioning': 'false' // 💡核心修复：关闭多版本堆叠，直接覆盖保存当前文件！
+                    'X-Master-Key': API_KEY, 
+                    'X-Bin-Versioning': 'false' 
                 },
                 body: JSON.stringify(payload)
             });
             
             if (!response.ok) throw new Error("云端拒绝了写入请求");
-            
             console.log("云端同步成功！");
         } catch (error) {
             console.error(error);
@@ -300,7 +295,6 @@
             if(btnLog) btnLog.innerText = originalText;
         }
     }
-    // =============================
 
     function renderAll() {
         renderInventoryTable();
@@ -431,18 +425,31 @@
         await saveToCloud();
     }
 
+    // ====== 核心功能：保存并处理重复合并机制 ======
     async function saveMealLog() {
         const dateVal = document.getElementById('mealDate').value;
         const period = document.getElementById('mealPeriod').value;
         const memo = document.getElementById('mealMemo').value.trim();
 
         if (!dateVal) return alert('请选择日期！');
+        
         let foodCombination = [];
         document.querySelectorAll('.food-selector').forEach(sel => { if (sel.value) foodCombination.push(sel.value); });
         if (foodCombination.length === 0) return alert('请至少选择一项食物！');
 
+        // 1. 检查是否重复提交（同一天、同一餐次）
+        const existingLogIndex = mealLogs.findIndex(l => l.date === dateVal && l.period === period);
+        if (existingLogIndex !== -1) {
+            if (!confirm(`⚠️ 发现重复提交！\n您在【${dateVal}】的【${period}】已经有打卡记录了。\n\n点击"确定"将覆盖旧记录，并自动退回原来扣减的库存。`)) {
+                return; // 用户取消覆盖
+            }
+        }
+
+        // 2. 先计算即将要扣减的库存，如果验证不通过就提前阻断
         let deductedSummary = [];
+        let rawDeductions = []; // 记录底层扣减数据，用于未来的撤销
         const checkedBoxes = document.querySelectorAll('.inv-checkbox:checked');
+        let deductionsToApply = []; 
         
         for (let cb of checkedBoxes) {
             const invId = cb.value;
@@ -454,22 +461,72 @@
                     deductAmount = parseFloat(deductInput.value);
                     if (isNaN(deductAmount) || deductAmount <= 0) return alert(`请输入【${invItem.name}】实际消耗的克数！`);
                 }
+                
                 if (invItem.total === 0 || invItem.total - invItem.used >= deductAmount) {
-                    invItem.used += deductAmount;
-                    deductedSummary.push(`${invItem.name} (-${deductAmount}${invItem.unit})`);
+                    deductionsToApply.push({ item: invItem, amount: deductAmount });
                 } else if (invItem.total > 0 && invItem.total - invItem.used < deductAmount) {
                     return alert(`【${invItem.name}】库存不足，无法扣减 ${deductAmount}${invItem.unit}！`);
                 }
             }
         }
 
-        mealLogs.unshift({ id: Date.now().toString(), date: dateVal, period: period, foods: foodCombination, inventoryDeducted: deductedSummary, memo: memo });
+        // 3. 如果是覆盖修改，先退回旧记录的库存
+        if (existingLogIndex !== -1) {
+            const oldLog = mealLogs[existingLogIndex];
+            if (oldLog.rawDeductions) {
+                oldLog.rawDeductions.forEach(d => {
+                    const iItem = inventory.find(i => i.id === d.id);
+                    if (iItem) iItem.used = Math.max(0, iItem.used - d.amount); // 退回库存
+                });
+            }
+            mealLogs.splice(existingLogIndex, 1); // 彻底移除旧记录
+        }
+
+        // 4. 正式执行新记录的库存扣减
+        deductionsToApply.forEach(d => {
+            d.item.used += d.amount;
+            deductedSummary.push(`${d.item.name} (-${d.amount}${d.item.unit})`);
+            rawDeductions.push({ id: d.item.id, amount: d.amount });
+        });
+
+        // 5. 保存新日志
+        mealLogs.unshift({ 
+            id: Date.now().toString(), 
+            date: dateVal, 
+            period: period, 
+            foods: foodCombination, 
+            inventoryDeducted: deductedSummary, 
+            rawDeductions: rawDeductions, // 存入原始结构
+            memo: memo 
+        });
+
         document.getElementById('mealMemo').value = '';
         renderAll();
         
-        // 关键：触发保存到云端
         await saveToCloud();
         alert(`${dateVal} ${period} 记录成功，已同步至云端！`);
+    }
+
+    // ====== 新增功能：一键撤销并退回库存 ======
+    async function deleteMealLog(logId) {
+        if (!confirm('确定要彻底撤销这条打卡记录吗？\n(撤销后，该记录扣减的对应库存将自动退回)')) return;
+        
+        const logIndex = mealLogs.findIndex(l => l.id === logId);
+        if (logIndex === -1) return;
+        
+        const log = mealLogs[logIndex];
+        
+        // 自动退回库存
+        if (log.rawDeductions) {
+            log.rawDeductions.forEach(d => {
+                const iItem = inventory.find(i => i.id === d.id);
+                if (iItem) iItem.used = Math.max(0, iItem.used - d.amount);
+            });
+        }
+        
+        mealLogs.splice(logIndex, 1); // 从打卡历史中删除
+        renderAll();
+        await saveToCloud();
     }
 
     function renderMealLogTable() {
@@ -480,8 +537,20 @@
         mealLogs.forEach(log => {
             const tr = document.createElement('tr');
             const foodsHtml = log.foods.map(f => `<span class="log-food-tag">${f}</span>`).join('');
-            const invHtml = log.inventoryDeducted.length > 0 ? log.inventoryDeducted.map(i => `<span class="log-inv-tag">${i}</span>`).join('') : '<span style="color:#bdc3c7; font-size:12px;">无库存关联</span>';
-            tr.innerHTML = `<td><strong>${log.date}</strong><br>${log.period}</td><td><div style="max-width:380px;">${foodsHtml}</div>${log.memo ? `<div style="font-size:12px; color:#7f8c8d; margin-top:4px;">备注: ${log.memo}</div>` : ''}</td><td>${invHtml}</td>`;
+            const invHtml = log.inventoryDeducted && log.inventoryDeducted.length > 0 ? log.inventoryDeducted.map(i => `<span class="log-inv-tag">${i}</span>`).join('') : '<span style="color:#bdc3c7; font-size:12px;">无库存关联</span>';
+            
+            // 历史记录中新增了撤销按钮
+            tr.innerHTML = `
+                <td><strong>${log.date}</strong><br>${log.period}</td>
+                <td>
+                    <div style="max-width:380px;">${foodsHtml}</div>
+                    ${log.memo ? `<div style="font-size:12px; color:#7f8c8d; margin-top:4px;">备注: ${log.memo}</div>` : ''}
+                </td>
+                <td>
+                    <div style="margin-bottom: 6px;">${invHtml}</div>
+                    <button class="btn-small" onclick="deleteMealLog('${log.id}')" style="color: #e74c3c; border-color: #fadbd8; background: #fdf2f0;">🗑️ 撤销此记录并退回库存</button>
+                </td>
+            `;
             tbody.appendChild(tr);
         });
     }
