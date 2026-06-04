@@ -236,11 +236,15 @@
         await loadFromCloud();
     };
 
-    // ====== 云端通信核心功能 ======
+  // ====== 云端通信核心功能 ======
     async function loadFromCloud() {
         try {
-            const response = await fetch(API_URL, {
-                headers: { 'X-Master-Key': API_KEY }
+            // 在地址后加上 /latest 强制拉取最新数据
+            const response = await fetch(API_URL + '/latest', {
+                headers: { 
+                    'X-Access-Key': API_KEY,
+                    'X-Master-Key': API_KEY // 双重兼容，防止填错 Key 导致无权限
+                }
             });
             const data = await response.json();
             
@@ -248,27 +252,28 @@
                 inventory = data.record.inventory || [];
                 mealLogs = data.record.mealLogs || [];
                 
-                document.getElementById('cloudStatus').innerText = '✅ 云端已连接';
+                document.getElementById('cloudStatus').innerText = '✅ 云端已同步';
                 document.getElementById('cloudStatus').classList.add('online');
                 renderAll();
             } else {
                 throw new Error("读取数据格式错误");
             }
         } catch (error) {
-            alert("从云端读取数据失败，请检查密钥是否正确！");
             console.error(error);
             document.getElementById('cloudStatus').innerText = '❌ 连接失败';
+            alert("读取云端数据失败，请检查密钥是否正确。");
         } finally {
             document.getElementById('loadingOverlay').style.display = 'none';
         }
     }
 
     async function saveToCloud() {
-        // 保存时禁用按钮，防止重复提交
+        // 保存时禁用按钮，防止连点
         const btns = document.querySelectorAll('.btn');
         btns.forEach(b => b.disabled = true);
-        const originalText = document.getElementById('btnSaveLog').innerText;
-        document.getElementById('btnSaveLog').innerText = '🔄 正在同步到云端...';
+        const btnLog = document.getElementById('btnSaveLog');
+        const originalText = btnLog ? btnLog.innerText : '';
+        if(btnLog) btnLog.innerText = '🔄 正在同步到云端...';
 
         const payload = { inventory: inventory, mealLogs: mealLogs };
         
@@ -277,20 +282,22 @@
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Master-Key': API_KEY
+                    'X-Access-Key': API_KEY,
+                    'X-Master-Key': API_KEY, // 双重兼容
+                    'X-Bin-Versioning': 'false' // 💡核心修复：关闭多版本堆叠，直接覆盖保存当前文件！
                 },
                 body: JSON.stringify(payload)
             });
             
-            if (!response.ok) throw new Error("同步失败");
+            if (!response.ok) throw new Error("云端拒绝了写入请求");
             
             console.log("云端同步成功！");
         } catch (error) {
-            alert("保存到云端失败，请检查网络！你的数据可能未成功同步。");
             console.error(error);
+            alert("保存到云端失败，数据未能同步，请检查网络！");
         } finally {
             btns.forEach(b => b.disabled = false);
-            document.getElementById('btnSaveLog').innerText = originalText;
+            if(btnLog) btnLog.innerText = originalText;
         }
     }
     // =============================
