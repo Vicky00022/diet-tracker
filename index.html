@@ -182,6 +182,7 @@
     // ==========================================
     const BIN_ID = "6a216ef8da38895dfe865189";       
     const API_KEY = "$2a$10$xf6tDSU0bx7nBkFcUd/PAOG36Cea6KKPg7Gk/nksdr0LSvPPJYLne";     
+    const MAKE_WEBHOOK = "https://hook.eu1.make.com/zmdim0a9xyt7o6yjridan6cgrstpn59p"; // 👈 新增这一行
     // ==========================================
 
     const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
@@ -489,21 +490,45 @@
             rawDeductions.push({ id: d.item.id, amount: d.amount });
         });
 
-        // 5. 保存新日志
+      // ... (前面扣减库存的逻辑不变) ...
+
+        // 5. 保存新日志到本地数组
         mealLogs.unshift({ 
             id: Date.now().toString(), 
             date: dateVal, 
             period: period, 
             foods: foodCombination, 
             inventoryDeducted: deductedSummary, 
-            rawDeductions: rawDeductions, // 存入原始结构
+            rawDeductions: rawDeductions, 
             memo: memo 
         });
 
         document.getElementById('mealMemo').value = '';
         renderAll();
         
+        // 6. 同步至 JSONBin
         await saveToCloud();
+
+        // 7. 🚀 新增：将数据抄送给 Make (最终推送到 Notion)
+        if (MAKE_WEBHOOK && !MAKE_WEBHOOK.includes("在这里粘贴")) {
+            try {
+                await fetch(MAKE_WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        date: dateVal,
+                        period: period,
+                        foods: foodCombination.join(', '), // 将数组转为文字发送
+                        deducted: deductedSummary.join(', '),
+                        memo: memo
+                    })
+                });
+                console.log("已成功抄送至 Make Webhook！");
+            } catch (err) {
+                console.error("Webhook 推送失败:", err);
+            }
+        }
+
         alert(`${dateVal} ${period} 记录成功，已同步至云端！`);
     }
 
